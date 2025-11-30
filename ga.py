@@ -28,7 +28,7 @@ class Environment:
 
     def compute_targets(self):
         """Compute target outputs for current inputs."""
-        self.targets = np.array([f(self.inputs) for f in self.functions])
+        self.targets = np.array([self.active_function(self.inputs)])
 
     def update(self):
         """If dynamic, possibly rotate functions and change inputs."""
@@ -36,6 +36,15 @@ class Environment:
             self.active_function = self.functions[rng.integers(len(self.functions))]
             self.inputs = self.sample_inputs()
         self.compute_targets()
+
+    def get_information_content(self):
+        """
+        Estimate the 'information content' of the environment.
+        Based on the number of available functions (complexity).
+        """
+        if not self.functions:
+            return 0.0
+        return np.log2(len(self.functions))
 
 
 # -------------------------------
@@ -53,29 +62,57 @@ class Population:
         }
 
     # --- GA methods ---
-    def tournament_selection(self, fitnesses, k=2):
-        N = self.genome.shape[0]
-        idx = np.arange(N)
-        rng.shuffle(idx)
-        winners = []
-        for i in range(0, N, k):
-            competitors = idx[i:i+k]
-            winner = competitors[np.argmax(fitnesses[competitors])]
-            winners.append(winner)
-        self.genome = self.genome[winners]
+    def tournament_selection(self, fitnesses, k=2, elitism_rate=0.1):
+        # Select self.N individuals to maintain population size
+        # We sample with replacement to allow best individuals to be selected multiple times
+        # Added elitism to preserve top performers and prevent extinction
+        
+        current_size = self.genome.shape[0]
+        
+        # Elitism: automatically keep top performers
+        n_elite = max(2, int(self.N * elitism_rate))  # At least 2 elites
+        elite_indices = np.argsort(fitnesses)[-n_elite:]  # Top n_elite individuals
+        
+        # Tournament selection for remaining slots
+        new_genome_indices = list(elite_indices)
+        
+        for _ in range(self.N - n_elite):
+            # Select k random individuals
+            competitors_idx = rng.integers(0, current_size, size=k)
+            # Find the best among them
+            winner_idx = competitors_idx[np.argmax(fitnesses[competitors_idx])]
+            new_genome_indices.append(winner_idx)
+            
+        new_genome_indices = np.array(new_genome_indices)
+        self.genome = self.genome[new_genome_indices]
+        
+        # Update metadata to match winners
+        for key in self.metadata:
+            self.metadata[key] = self.metadata[key][new_genome_indices]
 
     def one_point_crossover(self, p_c=0.8):
         N, genome_size = self.genome.shape
+        if N < 2: return
+        
         idx = np.arange(N)
         rng.shuffle(idx)
-        new_population = self.genome.copy()
+        new_population = []
+        
         for i in range(0, N-1, 2):
             if rng.random() < p_c:
                 point = rng.integers(1, genome_size)
-                p1, p2 = new_population[idx[i]].copy(), new_population[idx[i+1]].copy()
-                new_population[idx[i], point:] = p2[point:]
-                new_population[idx[i+1], point:] = p1[point:]
-        self.genome = np.vstack((self.genome, new_population))
+                p1, p2 = self.genome[idx[i]].copy(), self.genome[idx[i+1]].copy()
+                
+                # Create offspring
+                c1 = np.concatenate([p1[:point], p2[point:]])
+                c2 = np.concatenate([p2[:point], p1[point:]])
+                
+                new_population.append(c1)
+                new_population.append(c2)
+        
+        if new_population:
+            self.genome = np.vstack((self.genome, np.array(new_population)))
+            self.resize_metadata()
 
     def mutate(self, p_m=0.01):
         mutation_mask = rng.random(self.genome.shape) < p_m
@@ -84,7 +121,29 @@ class Population:
     # --- Population methods ---
     def sync_metadata(self):
         """Ensure travel gene matches genome."""
+        if len(self.genome) != len(self.metadata['travel']):
+            self.resize_metadata()
         self.metadata['travel'] = self.genome[:, 0]
+
+    def resize_metadata(self):
+        """Ensure all metadata arrays match the current genome size."""
+        current_N = len(self.genome)
+        old_N = len(self.metadata['travel'])
+        
+        if current_N == old_N:
+            return
+
+        if current_N > old_N:
+            # Expand (happens after crossover)
+            diff = current_N - old_N
+            self.metadata['travel'] = np.concatenate([self.metadata['travel'], np.zeros(diff, dtype=int)])
+            self.metadata['num_travelled'] = np.concatenate([self.metadata['num_travelled'], np.zeros(diff, dtype=int)])
+            current_env_id = self.metadata['env_id'][0] if old_N > 0 else -1
+            self.metadata['env_id'] = np.concatenate([self.metadata['env_id'], np.full(diff, current_env_id, dtype=int)])
+        elif current_N < old_N:
+             # Should be handled by selection logic directly updating metadata, but as a fallback:
+             for key in self.metadata:
+                 self.metadata[key] = self.metadata[key][:current_N]
 
     def compute_outputs(self, inputs):
         """Outputs = sum over genome traits weighted by inputs^power (excluding travel gene)."""
@@ -94,12 +153,12 @@ class Population:
     def compute_fitness(self, targets, inputs):
         outputs = self.compute_outputs(inputs)
         targets = np.atleast_2d(targets)
-        # return -np.mean(np.abs(outputs[:, None] - targets), axis=1)
-        return - np.abs(outputs - env1.targets)
+        return -np.abs(outputs - targets.flatten()[0])
 
-    def migrate_to(self, other_population, p_migrate=0.3):
+    def migrate_to(self, other_population, p_migrate=0.3, min_population=30):
         """
         Move individuals with travel=1 to other population with probability p_migrate.
+        Ensures at least min_population individuals remain to prevent extinction.
         """
         self.sync_metadata()
         travel_mask = self.metadata['travel'] == 1
@@ -107,18 +166,36 @@ class Population:
             return
 
         # Apply probabilistic migration among travel=1 individuals
-        migrate_mask = travel_mask.copy()
-        migrate_mask[travel_mask] = rng.random(np.sum(travel_mask)) < p_migrate
+        indices = np.where(travel_mask)[0]
+        migrating_indices = []
+        for idx in indices:
+            if rng.random() < p_migrate:
+                migrating_indices.append(idx)
+        
+        if not migrating_indices:
+            return
 
-        if not np.any(migrate_mask):
-            return  # no one migrated this round
-
+        migrating_indices = np.array(migrating_indices)
+        
+        # Prevent population extinction - keep minimum population size
+        current_pop_size = len(self.genome)
+        max_migrants = max(0, current_pop_size - min_population)
+        if len(migrating_indices) > max_migrants:
+            # Randomly select subset of migrants to preserve minimum population
+            rng.shuffle(migrating_indices)
+            migrating_indices = migrating_indices[:max_migrants]
+        
+        if len(migrating_indices) == 0:
+            return
+        
         # Select genomes and metadata to move
-        moving_genomes = self.genome[migrate_mask]
-        moving_metadata = {k: v[migrate_mask].copy() for k, v in self.metadata.items()}
+        moving_genomes = self.genome[migrating_indices]
+        moving_metadata = {k: v[migrating_indices].copy() for k, v in self.metadata.items()}
 
         # Remove from current population
-        keep_mask = ~migrate_mask
+        keep_mask = np.ones(len(self.genome), dtype=bool)
+        keep_mask[migrating_indices] = False
+        
         self.genome = self.genome[keep_mask]
         self.metadata = {k: v[keep_mask].copy() for k, v in self.metadata.items()}
 
@@ -132,11 +209,23 @@ class Population:
 
         # Update environment and travel stats for the moved individuals
         moved_n = len(moving_genomes)
-        other_population.metadata['env_id'][-moved_n:] = other_population.metadata['env_id'][-moved_n:]
         other_population.metadata['num_travelled'][-moved_n:] += 1
         other_population.sync_metadata()
 
-
+    def get_stats(self):
+        """Return dictionary with current population statistics."""
+        if len(self.genome) == 0:
+            return {
+                'size': 0,
+                'mean_genome': np.zeros(self.genome_size),
+                'travel_freq': 0.0
+            }
+        return {
+            'size': len(self.genome),
+            'mean_genome': np.mean(self.genome, axis=0),
+            'travel_freq': np.mean(self.genome[:, 0])
+        }
+        
 
 # -------------------------------
 # Simulation
