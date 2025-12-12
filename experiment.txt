@@ -1,0 +1,49 @@
+Experiment 1:
+Ran an evolutionary experiment 3 times, each with a different level of environmental unpredictability:
+
+0.0	Fully static --- (never changes)
+    converges fast
+    enthropy drops sharp. 
+0.05 --- Rare changes
+
+0.1	Moderate, ---- occasional changes
+    entropy remained moderate
+    fitness stayed higher
+    mutual information accumulated steadily
+
+0.2 ---	Frequent changes
+    entropy remained high
+    mutual information was low/ noisy
+    populations fluctuated in fitness.
+
+0.5	Chaotic environment --- (very high unpredictability)
+    same as 0.2. 
+    When the environment changed too frequently: genomes could not converge on meaningful patterns. 
+
+The only difference between runs was how often the environment changes. 
+Answer to this experiment: complexity emerges strongest when the environment is neither too static nor too unpredictable.
+Results: evocomp/results/dynamicity_plots. 
+
+
+Experiment 2:
+tested mutation rate impact on fitness, entropy, mutual information, and gene stability. Ran an evolutionary experiment 3 times for mutation rate sweep.
+i. Trying new gene combinations(for adaptation). 
+ii. Refining known good solutions(for convergence).
+
+0.001 --- very low mutation
+    fitnes improves stable but slow 
+    Strong convergence
+    Entropy drops over time
+
+0.1 --- moderate mutation
+    Tracks environment changes well
+    Fitness improved much faster than in 0.001
+    Entropy stays higher
+
+0.2 --- high mutation 
+    fluctuation in fitness. 
+    Entropy stays extremely high
+    Too much randomness
+
+Answer to this experiment: if the mutation rate is too low the population converges prematurely and explores very little. but if its too high population becomes chaotic and trouble learning. 
+Moderate showed best balance of exploration and exploitation. 
