@@ -177,3 +177,50 @@ def analyze_phase2_travel_evolution(logger1, logger2):
         print("Hypothesis Supported: Dynamic environment promoted higher migration.")
     else:
         print("Hypothesis Not Supported: Dynamic environment did not promote higher migration.")
+
+
+def experiment_dynamicity_sweep(generations, output_dir):
+    dynamicities = [0.0,  0.1, 0.5]
+    population_size = 100
+    mutation_rate = 0.05
+    crossover_rate = 0.7
+    genome_size = 10 
+    functions = get_functions_pool()
+
+    for d in dynamicities:
+        exp_name = f"dynamicity_{d}"
+        print(f"\n=== Running dynamicity={d} ===")
+
+        env = Environment(functions, dynamicity=d, M=genome_size-1)
+        pop = Population(N=population_size, genome_size=genome_size, env_id=env.id)
+        logger = EvolutionLogger(exp_name)
+
+        for gen in range(generations):
+            run_generation([pop], [env], p_c=crossover_rate, p_m=mutation_rate)
+            logger.log_generation(gen, pop, env)
+
+        logger.save_csv(f"{output_dir}/{exp_name}.csv")
+        print(f"Saved results for dynamicity={d}")
+
+def experiment_mutation_sweep(generations, output_dir):
+    mutation_rates = [0.001, 0.1, 0.2]
+    population_size = 100
+    crossover_rate = 0.7
+    genome_size = 10
+    functions = get_functions_pool()
+    dynamicity = 0.1   # moderate environment
+
+    for m in mutation_rates:
+        exp_name = f"mutation_{m}"
+        print(f"\n=== Running mutation_rate={m} ===")
+
+        env = Environment(functions, dynamicity=dynamicity, M=genome_size-1)
+        pop = Population(N=population_size, genome_size=genome_size, env_id=env.id)
+        logger = EvolutionLogger(exp_name)
+
+        for gen in range(generations):
+            run_generation([pop], [env], p_c=crossover_rate, p_m=m)
+            logger.log_generation(gen, pop, env)
+
+        logger.save_csv(f"{output_dir}/{exp_name}.csv")
+        print(f"Saved results for mutation={m}")

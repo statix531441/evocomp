@@ -9,7 +9,9 @@ from experiments import (
     run_phase1_dynamic, 
     compare_phase1_results, 
     run_phase2_two_islands, 
-    analyze_phase2_travel_evolution
+    analyze_phase2_travel_evolution,
+    experiment_dynamicity_sweep,
+    experiment_mutation_sweep
 )
 from visualization import (
     plot_fitness_over_time, 
@@ -23,7 +25,7 @@ from visualization import (
 def main():
     parser = argparse.ArgumentParser(description="Evolutionary Computation Project")
     parser.add_argument('--experiment', type=str, required=True, 
-                        choices=['phase1_static', 'phase1_dynamic', 'phase1_compare', 'phase2'],
+                        choices=['phase1_static', 'phase1_dynamic', 'phase1_compare', 'phase2', 'dynamicity_sweep', 'mutation_sweep'],
                         help='Experiment to run')
     parser.add_argument('--generations', type=int, default=200, help='Number of generations')
     parser.add_argument('--population_size', type=int, default=100, help='Population size')
@@ -116,6 +118,13 @@ def main():
         plt.title('Travel Gene Evolution')
         plt.legend()
         plt.savefig(os.path.join(args.output_dir, 'phase2_travel_evolution.png'))
+    
+    elif args.experiment == "dynamicity_sweep":
+        experiment_dynamicity_sweep(args.generations, args.output_dir)
+    
+    elif args.experiment == 'mutation_sweep':
+        experiment_mutation_sweep(args.generations, args.output_dir)
+
 
 if __name__ == "__main__":
     main()
